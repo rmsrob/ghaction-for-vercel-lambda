@@ -1,0 +1,107 @@
+name: Deploy Vercel Lambda - lambda-test
+on:
+  pull_request:
+  pull_request_target:
+    types:
+      - closed
+    paths:
+      - 'lambda/lambda-test/**'
+
+  workflow_dispatch:
+
+env:
+  LAMBDA_PATH: 'lambda/lambda-test'
+  PROJECT_ID_DEV: ${{ secrets.VERCEL_PROJECT_ID_TEST_DEV }}
+  PROJECT_ID_PROD: ${{ secrets.VERCEL_PROJECT_ID_TEST_PROD }}
+
+jobs:
+  test-lambda-on-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 👷 Dispatch on Master or Develop or not
+        shell: bash
+        run: |
+          if [[ ${GITHUB_BASE_REF} =~ "master" || ${GITHUB_BASE_REF} =~ "main" ]]; then
+            echo "PROJECT_ID=${PROJECT_ID_PROD}" >> $GITHUB_ENV
+          elif [[ ${GITHUB_BASE_REF} =~ "develop" ]]; then
+            echo "PROJECT_ID=${PROJECT_ID_DEV}" >> $GITHUB_ENV
+          else
+            echo "PROJECT_ID=nope" >> $GITHUB_ENV
+          fi
+          echo "BRANCH ${GITHUB_HEAD_REF} FROM ${{ github.base_ref }}"
+
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v2
+
+      - name: 🏗 Setup Node 14
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: 📦 Build
+        run: |
+          yarn install --frozen-lockfile
+        shell: bash
+        working-directory: ${{ env.LAMBDA_PATH }}
+
+      - name: 🚀 Deploy to Vercel Staging 🟠
+        id: deploy-vercel-staging
+        uses: amondnet/vercel-action@v20
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ env.PROJECT_ID }}
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+          working-directory: ./${{ env.LAMBDA_PATH }}
+
+      - name: 🤖 Run Tests Against Vercel Staging
+        env:
+          VERCEL_LAMBDA_URL: ${{ steps.deploy-vercel-staging.outputs.preview-url }}
+        run: |
+          curl --request PUT \
+          --header "Content-type: application/json" \
+          --url $VERCEL_LAMBDA_URL
+        working-directory: ${{ env.LAMBDA_PATH }}
+
+  deploy-lambda:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: 👷 Dispatch on Master or Develop or not
+        shell: bash
+        run: |
+          if [[ ${GITHUB_BASE_REF} =~ "master" || ${GITHUB_BASE_REF} =~ "main" ]]; then
+            echo "PROJECT_ID=${PROJECT_ID_PROD}" >> $GITHUB_ENV
+          elif [[ ${GITHUB_BASE_REF} =~ "develop" ]]; then
+            echo "PROJECT_ID=${PROJECT_ID_DEV}" >> $GITHUB_ENV
+          else
+            echo "PROJECT_ID=nope" >> $GITHUB_ENV
+          fi
+          echo "BRANCH ${GITHUB_HEAD_REF} FROM ${{ github.base_ref }}"
+
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v2
+
+      - name: 🏗 Setup Node 14
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: 📦 Build
+        run: |
+          yarn install --frozen-lockfile
+        shell: bash
+        working-directory: ${{ env.LAMBDA_PATH }}
+
+      - name: 🚀 Deploy to Vercel Production 🟢
+        id: deploy-vercel-production
+        uses: amondnet/vercel-action@v20
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ env.PROJECT_ID }}
+          vercel-args: '--prod'
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+          working-directory: ./${{ env.LAMBDA_PATH }}
